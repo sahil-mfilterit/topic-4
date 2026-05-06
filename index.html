@@ -235,11 +235,18 @@
                 return result;
             }
 
+            var _touchActive = false;
+
+            function onTouchStart(event) { _touchActive = true; onStart(event); }
+            function onTouchEnd(event) { onEnd(event); setTimeout(function () { _touchActive = false; }, 500); }
+            function onMouseDown(event) { if (!_touchActive) onStart(event); }
+            function onMouseUp(event) { if (!_touchActive) onEnd(event); }
+
             // Attach all four event types
-            element.addEventListener('touchstart', onStart, { passive: true });
-            element.addEventListener('mousedown', onStart, false);
-            element.addEventListener('touchend', onEnd, false);
-            element.addEventListener('mouseup', onEnd, false);
+            element.addEventListener('touchstart', onTouchStart, { passive: true });
+            element.addEventListener('mousedown', onMouseDown, false);
+            element.addEventListener('touchend', onTouchEnd, false);
+            element.addEventListener('mouseup', onMouseUp, false);
 
             console.log('[ClickCheck] Attached to element:', element.id || element.tagName);
         }
