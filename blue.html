@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+
+    <script>
+        // ─── HELPER: Get pointer coordinates from any event type ─────────────────────
+
+        function getPointerCoords(event) {
+            // Touch events store coordinates in touches or changedTouches
+            if (event.touches && event.touches.length > 0) {
+                return { x: event.touches[0].clientX, y: event.touches[0].clientY };
+            }
+            if (event.changedTouches && event.changedTouches.length > 0) {
+                return { x: event.changedTouches[0].clientX, y: event.changedTouches[0].clientY };
+            }
+            // Mouse events store coordinates directly
+            return { x: event.clientX, y: event.clientY };
+        }
+
+
+        // ─── HELPER: Get center of a bounding rect ───────────────────────────────────
+
+        function getRectCenter(rect) {
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2
+            };
+        }
+
+
+        // ─── HELPER: Euclidean distance between two points ───────────────────────────
+
+        function distance(x1, y1, x2, y2) {
+            var dx = x2 - x1;
+            var dy = y2 - y1;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+
+        // ─── HELPER: Check if a point is inside a bounding rect ──────────────────────
+
+        function isInsideRect(x, y, rect) {
+            return (
+                x >= rect.left &&
+                x <= rect.right &&
+                y >= rect.top &&
+                y <= rect.bottom
+            );
+        }
+
+
+
+        // ─── DIAGNOSIS: Classify the click based on all signals ──────────────────────
+
+        function computeDiagnosis(result) {
+
+            // Immediate bot signals — any one of these alone is definitive
+            if (!result.startIsTrusted || !result.endIsTrusted) {
+                return 'bot_untrusted_event';
+            }
+
+            if (!result.isSameRef) {
+                return 'bot_element_mismatch';
+            }
+
+            if (!result.isStartPointerInside) {
+                return 'bot_outside_element';
+            }
+
+            // Strong bot signal — pointer never moved at all
+            if (result.pointerMovedBy === 0 && result.targetMovedBy === 0) {
+                return 'bot_no_movement';
+            }
+
+            // Suspicious — pointer moved but did not track target movement
+            if (result.hasTargetMoved && result.pointerMovedBy < 0.8 * result.targetMovedBy) {
+                return 'suspicious_movement_mismatch';
+            }
+
+            // Suspicious — pointer clicked exactly at center (unnatural for humans)
+            if (result.deltaStartPointerCenter === 0) {
+                return 'suspicious_exact_center';
+            }
+
+            // Suspicious — wrong event type for device
+            if (result.startType === 'mouse' && /Mobi|Android/i.test(navigator.userAgent)) {
+                return 'suspicious_mouse_on_mobile';
+            }
+
+            // Looks human
+            return 'human';
+        }
+
+
+        // ─── ATTACH: Wire up all event listeners to a button element ─────────────────
+
+        function attachClickLegitimacyCheck(element) {
+
+            // FIX Issue 3: state variables are now LOCAL to each attached element
+            // so multiple buttons never share or corrupt each other's state
+            var _startEvent = null;
+            var _startRect = null;
+            var _startX = 0;
+            var _startY = 0;
+            var _startTime = 0;
+            var _startType = '';
+            var _startTrusted = false;
+
+            var _endEvent = null;
+            var _endRect = null;
+            var _endX = 0;
+            var _endY = 0;
+            var _endTime = 0;
+            var _endType = '';
+            var _endTrusted = false;
+
+            // ── touchstart / mousedown — record start state ───────────────────────────
+            function onStart(event) {
+                var coords = getPointerCoords(event);
+                _startEvent = event;
+                _startRect = element.getBoundingClientRect();
+                _startX = coords.x;
+                _startY = coords.y;
+                _startTime = Date.now();
+                _startType = event.type.indexOf('touch') !== -1 ? 'touch' : 'mouse';
+                _startTrusted = event.isTrusted;
+            }
+
+            // ── touchend / mouseup — record end state and run analysis ────────────────
+            function onEnd(event) {
+                var coords = getPointerCoords(event);
+                _endEvent = event;
+                _endRect = element.getBoundingClientRect();
+                _endX = coords.x;
+                _endY = coords.y;
+                _endTime = Date.now();
+                _endType = event.type.indexOf('touch') !== -1 ? 'touch' : 'mouse';
+                _endTrusted = event.isTrusted;
+
+                // Run the full analysis
+                var result = analyzeClick();
+                logResult(result);
+            }
+
+            // ── Inner analyzeClick uses closure variables (not globals) ───────────────
+            function analyzeClick() {
+
+                var result = {};
+
+                result.startType = _startType;
+                result.startIsTrusted = _startTrusted;
+                result.endIsTrusted = _endTrusted;
+                result.endType = _endType;
+
+                result.isSameRef = (_startEvent && _endEvent)
+                    ? (_startEvent.target === _endEvent.target)
+                    : false;
+
+                var pointerDX = _endX - _startX;
+                var pointerDY = _endY - _startY;
+                var pointerDist = distance(_startX, _startY, _endX, _endY);
+
+                result.hasPointerMoved = pointerDist > 0;
+                result.pointerXMoved = pointerDX;
+                result.pointerYMoved = pointerDY;
+                result.pointerMovedBy = pointerDist;
+
+                var targetDX = 0;
+                var targetDY = 0;
+                var targetDist = 0;
+
+                if (_startRect && _endRect) {
+                    var startCenter = getRectCenter(_startRect);
+                    var endCenter = getRectCenter(_endRect);
+                    targetDX = endCenter.x - startCenter.x;
+                    targetDY = endCenter.y - startCenter.y;
+                    targetDist = distance(startCenter.x, startCenter.y, endCenter.x, endCenter.y);
+                }
+
+                result.hasTargetMoved = targetDist > 0;
+                result.targetXMoved = targetDX;
+                result.targetYMoved = targetDY;
+                result.targetMovedBy = targetDist;
+
+                result.isStartPointerInside = _startRect
+                    ? isInsideRect(_startX, _startY, _startRect) : false;
+
+                result.isEndPointerInside = _endRect
+                    ? isInsideRect(_endX, _endY, _endRect) : false;
+
+                result.deltaStartPointerCenter = _startRect
+                    ? (function () {
+                        var c = getRectCenter(_startRect);
+                        return distance(_startX, _startY, c.x, c.y);
+                    })()
+                    : -1;
+
+                result.deltaEndPointerCenter = _endRect
+                    ? (function () {
+                        var c = getRectCenter(_endRect);
+                        return distance(_endX, _endY, c.x, c.y);
+                    })()
+                    : -1;
+
+                result.bothEventsTrusted = result.startIsTrusted && result.endIsTrusted;
+                result.clickDurationMs = _endTime - _startTime;
+
+                result.diagnosis = computeDiagnosis(result);
+
+                // FIX Issue 4: on a static page the button never moves so
+                // targetMovedBy is always 0 and the original formula always
+                // returns false even for a real human click.
+                // We use a relaxed formula for testing:
+                //   - both events must be trusted
+                //   - pointer must end inside the button
+                //   - click must have taken at least 30ms (not instant bot)
+                result.isLegitimate = (
+                    result.bothEventsTrusted &&
+                    result.isEndPointerInside &&
+                    result.clickDurationMs >= 30
+                );
+
+                // Also store the strict DCBProtect formula result separately
+                result.isLegitimateStrict = (
+                    !result.hasPointerMoved &&
+                    result.hasTargetMoved &&
+                    result.isEndPointerInside &&
+                    result.pointerMovedBy >= 0.8 * result.targetMovedBy
+                );
+
+                return result;
+            }
+
+            // Attach all four event types
+            element.addEventListener('touchstart', onStart, { passive: true });
+            element.addEventListener('mousedown', onStart, false);
+            element.addEventListener('touchend', onEnd, false);
+            element.addEventListener('mouseup', onEnd, false);
+
+            console.log('[ClickCheck] Attached to element:', element.id || element.tagName);
+        }
+
+
+        // ─── LOG: Print the full analysis result to console ──────────────────────────
+
+        function logResult(result) {
+            console.log('\n========== CLICK LEGITIMACY ANALYSIS ==========');
+            console.log('startType              :', result.startType);
+            console.log('startIsTrusted         :', result.startIsTrusted);
+            console.log('endIsTrusted           :', result.endIsTrusted);
+            console.log('endType                :', result.endType);
+            console.log('isSameRef              :', result.isSameRef);
+            console.log('hasPointerMoved        :', result.hasPointerMoved);
+            console.log('hasTargetMoved         :', result.hasTargetMoved);
+            console.log('pointerXMoved          :', result.pointerXMoved.toFixed(2), 'px');
+            console.log('pointerYMoved          :', result.pointerYMoved.toFixed(2), 'px');
+            console.log('pointerMovedBy         :', result.pointerMovedBy.toFixed(2), 'px');
+            console.log('targetXMoved           :', result.targetXMoved.toFixed(2), 'px');
+            console.log('targetYMoved           :', result.targetYMoved.toFixed(2), 'px');
+            console.log('targetMovedBy          :', result.targetMovedBy.toFixed(2), 'px');
+            console.log('isStartPointerInside   :', result.isStartPointerInside);
+            console.log('isEndPointerInside     :', result.isEndPointerInside);
+            console.log('deltaStartPointerCenter:', result.deltaStartPointerCenter.toFixed(2), 'px');
+            console.log('deltaEndPointerCenter  :', result.deltaEndPointerCenter.toFixed(2), 'px');
+            console.log('bothEventsTrusted      :', result.bothEventsTrusted);
+            console.log('clickDurationMs        :', result.clickDurationMs, 'ms');
+            console.log('diagnosis              :', result.diagnosis);
+            console.log('isLegitimate           :', result.isLegitimate);
+            console.log('================================================\n');
+        }
+
+
+    </script>
+</head>
+
+<body>
+    Lorem ipsum dolor sit amet consectetur adipisicing elit. Consequuntur molestias optio sit nisi nulla temporibus
+    animi quidem modi! Hic eligendi enim cupiditate repellat ipsam fuga a laboriosam ea aliquid pariatur.
+    <div>
+        <!-- FIX Issue 1: added id so the auto-attach selector #he-flow-submit matches -->
+        <button id="he-flow-submit">
+            Lorem ipsum dolor sit amet consectetur adipisicing elit. Ipsum, repellat? Deleniti reprehenderit sunt,
+            nostrum sequi iusto voluptates in ipsa aliquam. Dolor repellat quas soluta reiciendis omnis blanditiis
+            officia nesciunt earum.
+        </button>
+    </div>
+
+    <!-- FIX Issue 2: script moved to bottom of body so it does not block rendering -->
+    <script>
+        // ─── AUTO-ATTACH: Attach to all subscribe buttons on the page ────────────────
+        document.addEventListener('DOMContentLoaded', function () {
+            var selectors = [
+                '#he-flow-submit',
+                '#pin-flow-submit',
+                '#he-flow-btn',
+                '#pin-flow-btn',
+                '#protected',
+                '#protected2'
+            ];
+
+            selectors.forEach(function (sel) {
+                var el = document.querySelector(sel);
+                if (el) {
+                    attachClickLegitimacyCheck(el);
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
