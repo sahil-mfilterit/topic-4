@@ -58,7 +58,8 @@
 
         function computeDiagnosis(result) {
 
-            // Immediate bot signals — any one of these alone is definitive
+            // HARD FAILS
+
             if (!result.startIsTrusted || !result.endIsTrusted) {
                 return 'bot_untrusted_event';
             }
@@ -67,35 +68,34 @@
                 return 'bot_element_mismatch';
             }
 
-            if (!result.isStartPointerInside) {
+            if (!result.isStartPointerInside ||
+                !result.isEndPointerInside) {
                 return 'bot_outside_element';
             }
 
-            // Strong bot signal — pointer never moved at all
-            if (result.pointerMovedBy === 0 && result.targetMovedBy === 0) {
-                return 'bot_no_movement';
+            if (result.clickDurationMs < 20) {
+                return 'bot_instant_click';
             }
 
-            // Suspicious — pointer moved but did not track target movement
-            if (result.hasTargetMoved && result.pointerMovedBy < 0.8 * result.targetMovedBy) {
-                return 'suspicious_movement_mismatch';
+            // SOFT SUSPICIONS
+
+            if (
+                result.hasTargetMoved &&
+                result.pointerMovedBy <
+                0.5 * result.targetMovedBy
+            ) {
+                return 'suspicious_tracking';
             }
 
-            // Suspicious — pointer clicked exactly at center (unnatural for humans)
-            if (result.deltaStartPointerCenter === 0) {
+            if (
+                result.deltaStartPointerCenter < 1 &&
+                result.deltaEndPointerCenter < 1
+            ) {
                 return 'suspicious_exact_center';
             }
 
-            // Suspicious — wrong event type for device
-            if (result.startType === 'mouse' && /Mobi|Android/i.test(navigator.userAgent)) {
-                return 'suspicious_mouse_on_mobile';
-            }
-
-            // Looks human
             return 'human';
         }
-
-
         // ─── ATTACH: Wire up all event listeners to a button element ─────────────────
 
         function attachClickLegitimacyCheck(element) {
@@ -218,20 +218,39 @@
                 //   - both events must be trusted
                 //   - pointer must end inside the button
                 //   - click must have taken at least 30ms (not instant bot)
+                // result.isLegitimate = (
+                //     result.bothEventsTrusted &&
+                //     result.isEndPointerInside &&
+                //     result.clickDurationMs >= 30
+                // );
+
+                // // Also store the strict DCBProtect formula result separately
+                // result.isLegitimateStrict = (
+                //     !result.hasPointerMoved &&
+                //     result.hasTargetMoved &&
+                //     result.isEndPointerInside &&
+                //     result.pointerMovedBy >= 0.8 * result.targetMovedBy
+                // );
                 result.isLegitimate = (
+
+                    // Browser generated real events
                     result.bothEventsTrusted &&
-                    result.isEndPointerInside &&
-                    result.clickDurationMs >= 30
-                );
 
-                // Also store the strict DCBProtect formula result separately
-                result.isLegitimateStrict = (
-                    !result.hasPointerMoved &&
-                    result.hasTargetMoved &&
-                    result.isEndPointerInside &&
-                    result.pointerMovedBy >= 0.8 * result.targetMovedBy
-                );
+                    // User started inside element
+                    result.isStartPointerInside &&
 
+                    // User ended inside element
+                    result.isEndPointerInside &&
+
+                    // Same DOM element throughout interaction
+                    result.isSameRef &&
+
+                    // Human-like timing
+                    result.clickDurationMs >= 20 &&
+
+                    // Prevent absurdly long stale interactions
+                    result.clickDurationMs <= 10000
+                );
                 return result;
             }
 
