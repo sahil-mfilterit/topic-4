@@ -72,8 +72,6 @@
         }
 
 
-
-
         // ─── DIAGNOSIS: Classify the click based on all signals ──────────────────────
 
         function computeDiagnosis(result) {
@@ -305,6 +303,7 @@
             console.log('deltaEndPointerCenter  :', result.deltaEndPointerCenter.toFixed(2), 'px');
             console.log('bothEventsTrusted      :', result.bothEventsTrusted);
             console.log('clickDurationMs        :', result.clickDurationMs, 'ms');
+            console.log('deviceInputProfile     :', result.deviceInputProfile);
             console.log('diagnosis              :', result.diagnosis);
             console.log('isLegitimate           :', result.isLegitimate);
             console.log('================================================\n');
