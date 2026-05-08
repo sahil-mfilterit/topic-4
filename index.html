@@ -164,9 +164,14 @@
                 result.endIsTrusted = _endTrusted;
                 result.endType = _endType;
 
-                result.isSameRef = (_startEvent && _endEvent)
-                    ? (_startEvent.target === _endEvent.target)
-                    : false;
+                // result.isSameRef = (_startEvent && _endEvent)
+                //     ? (_startEvent.target === _endEvent.target)
+                //     : false;
+                result.isSameRef =
+                    _startEvent &&
+                    _endEvent &&
+                    element.contains(_startEvent.target) &&
+                    element.contains(_endEvent.target);
 
                 var pointerDX = _endX - _startX;
                 var pointerDY = _endY - _startY;
