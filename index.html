@@ -52,6 +52,26 @@
             );
         }
 
+        function getDeviceInputProfile() {
+            console.log("getDeviceInputProfile called ...")
+
+            var hasTouch =
+                navigator.maxTouchPoints > 0;
+
+            var coarsePointer =
+                window.matchMedia('(pointer: coarse)').matches;
+
+            var finePointer =
+                window.matchMedia('(pointer: fine)').matches;
+
+            return {
+                hasTouch: hasTouch,
+                coarsePointer: coarsePointer,
+                finePointer: finePointer
+            };
+        }
+
+
 
 
         // ─── DIAGNOSIS: Classify the click based on all signals ──────────────────────
@@ -75,16 +95,6 @@
 
             if (result.clickDurationMs < 20) {
                 return 'bot_instant_click';
-            }
-
-            // SOFT SUSPICIONS
-
-            if (
-                result.hasTargetMoved &&
-                result.pointerMovedBy <
-                0.5 * result.targetMovedBy
-            ) {
-                return 'suspicious_tracking';
             }
 
             if (
@@ -210,6 +220,7 @@
                 result.clickDurationMs = _endTime - _startTime;
 
                 result.diagnosis = computeDiagnosis(result);
+                result.deviceInputProfile = getDeviceInputProfile();
 
                 // FIX Issue 4: on a static page the button never moves so
                 // targetMovedBy is always 0 and the original formula always
